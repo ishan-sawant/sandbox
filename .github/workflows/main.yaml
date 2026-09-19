@@ -79,17 +79,6 @@ jobs:
     with:
       lambda: ${{ matrix.lambda }}
 
-  build:
-    needs: [changes, terraform]
-    uses: ./.github/workflows/build-image.yaml
-    if: always() && (needs.terraform.result == 'success' || needs.terraform.result == 'skipped') && needs.changes.outputs.web-app == 'true'
-    permissions:
-      contents: read
-      id-token: write
-    with:
-      application: web-app
-      push: true
-
   deploy-worker:
     needs: [changes, terraform-cloudflare]
     uses: ./.github/workflows/deploy-worker.yaml
