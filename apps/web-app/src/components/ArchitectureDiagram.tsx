@@ -134,7 +134,7 @@ export const ArchitectureDiagram = () => {
   const [snapshotData, setSnapshotData] = useState<any>(null);
   const [isUnavailable, setIsUnavailable] = useState(false);
   const [loading, setLoading] = useState(true);
-  const dashboardTitle = "Memory Usage by Cluster Namespace";
+  const dashboardTitle = "Edge Bytes Served by Country";
 
   useEffect(() => {
     let active = true;
@@ -169,7 +169,8 @@ export const ArchitectureDiagram = () => {
     };
   }, []);
 
-  // Parse Prometheus range query matrix results to coordinate records
+  // Parse the matrix payload into coordinate records. The Worker deliberately emits
+  // the same query_range shape the old cron produced, so this parser is unchanged.
   const parsePanelMetrics = (panel: any): any[] => {
     if (!panel || !panel.rawData) return [];
 
@@ -183,7 +184,7 @@ export const ArchitectureDiagram = () => {
         // Dynamically resolve legend/series label name from available keys
         const getSeriesLabel = (metric: Record<string, string>): string => {
           if (!metric) return "Value";
-          const preferredLabels = ["pod", "namespace", "container", "instance", "job", "device", "host", "service"];
+          const preferredLabels = ["country", "pod", "namespace", "container", "instance", "job", "device", "host", "service"];
           for (const label of preferredLabels) {
             if (metric[label]) return metric[label];
           }
@@ -211,11 +212,14 @@ export const ArchitectureDiagram = () => {
 
           if (!mergedByTime[timestampMillis]) {
             const date = new Date(timestampMillis);
+            const day = date.getDate().toString().padStart(2, "0");
+            const month = (date.getMonth() + 1).toString().padStart(2, "0");
             const hrs = date.getHours().toString().padStart(2, "0");
-            const mins = date.getMinutes().toString().padStart(2, "0");
+            // Buckets are hourly across a seven-day window, so the label has to carry the
+            // date: a bare HH:MM would repeat seven times over and read as a single day.
             mergedByTime[timestampMillis] = {
               timestampMillis,
-              timestamp: `${hrs}:${mins}`,
+              timestamp: `${day}/${month} ${hrs}:00`,
             };
           }
           mergedByTime[timestampMillis][seriesName] = Math.round(valInMiB * 100) / 100;
@@ -225,7 +229,7 @@ export const ArchitectureDiagram = () => {
       const sortedTimes = Object.keys(mergedByTime).map(Number).sort((a, b) => a - b);
       return sortedTimes.map(t => mergedByTime[t]);
     } catch (err) {
-      console.warn("Could not parse Prometheus matrix:", err);
+      console.warn("Could not parse analytics matrix:", err);
     }
     return [];
   };
@@ -244,12 +248,12 @@ export const ArchitectureDiagram = () => {
     return Array.from(keys);
   };
 
-  // Build the single adaptive timeline panel purely around the Prometheus range query response payload
+  // Build the single adaptive timeline panel purely around the analytics response payload
   const panels = !isUnavailable && snapshotData ? [{
-    id: "prometheus-matrix-query",
+    id: "cloudflare-analytics-matrix",
     title: dashboardTitle,
     type: "timeseries",
-    unit: "LAST 10MIN",
+    unit: "LAST 7 DAYS",
     rawData: snapshotData?.data,
   }] : [];
 
@@ -262,7 +266,7 @@ export const ArchitectureDiagram = () => {
           title="How Am I"
           titleMuted="Running This?"
           titleClassName="text-5xl md:text-6xl font-black mb-4 text-slate-900 tracking-tighter"
-          description="I'm running this in AWS, using EKS so i could gain a deeper understanding of Kubernetes. Below is a diagram of the system design!"
+          description="I'm running this on Cloudflare Workers — static assets served straight from the edge, with a cron-triggered Worker turning Cloudflare's own analytics into the live chart below. Here's the system design!"
         />
 
         {/* Dynamic Navigation Tabs */}
@@ -345,7 +349,7 @@ export const ArchitectureDiagram = () => {
                   {loading ? (
                     <div className="flex flex-col items-center justify-center py-24 gap-4 text-slate-500 font-mono text-xs">
                       <div className="w-8 h-8 rounded-full border-2 border-slate-800 border-t-cyan-500 animate-spin" />
-                      <span>Querying Prometheus...</span>
+                      <span>Querying Cloudflare Analytics...</span>
                     </div>
                   ) : isUnavailable ? (
                     <div className="flex flex-col items-center justify-center p-8 py-20 border border-slate-900 rounded-2xl text-center">
@@ -465,20 +469,20 @@ export const ArchitectureDiagram = () => {
                       ) : (
                         <div className="p-12 text-center border-2 border-dashed border-slate-800 rounded-3xl col-span-2 text-slate-500 text-sm font-mono flex flex-col items-center justify-center gap-2">
                            <Info className="w-5 h-5 text-slate-600" />
-                           <span>No active metrics panels detected in query-range JSON</span>
+                           <span>No active metrics panels detected in the analytics response</span>
                         </div>
                       )}
                     </div>
                   )}
 
-                  {/* Accordion view looking into the actual Prometheus metrics payload */}
+                  {/* Accordion view looking into the actual analytics payload */}
                   <div className="mt-2 border-t border-slate-900 pt-4 flex flex-col">
                     <button
                       onClick={() => setShowRawJson(!showRawJson)}
                       className="text-left py-2 text-[10px] font-mono uppercase tracking-wider text-slate-500 hover:text-slate-300 flex items-center gap-1.5 cursor-pointer self-start select-none transition-colors"
                     >
                       <Code className="w-3.5 h-3.5" />
-                      {showRawJson ? "[- Hide Prometheus response payload]" : "[+ View Prometheus response payload]"}
+                      {showRawJson ? "[- Hide Cloudflare Analytics response payload]" : "[+ View Cloudflare Analytics response payload]"}
                     </button>
 
                     <AnimatePresence>
