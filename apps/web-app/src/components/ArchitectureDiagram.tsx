@@ -312,7 +312,7 @@ export const ArchitectureDiagram = () => {
           title="How Am I"
           titleMuted="Running This?"
           titleClassName="text-5xl md:text-6xl font-black mb-4 text-slate-900 tracking-tighter"
-          description="I'm running this on Cloudflare Workers — static assets served straight from the edge, with a cron-triggered Worker turning Cloudflare's own analytics into the live chart below. Here's the system design!"
+          description="I'm running this on Cloudflare Workers. Static assets are served straight from the edge, with a cron-triggered Worker turning Cloudflare's own analytics into the live chart below. Here's the system design!"
         />
 
         {/* Dynamic Navigation Tabs */}
