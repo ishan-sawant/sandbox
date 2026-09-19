@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "motion/react";
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import { 
   Activity, 
   LayoutDashboard, 
@@ -21,6 +21,7 @@ import {
 import DIAGRAM_URL from "../assets/images/Untitled-2026-05-16-2229.svg";
 import { getPinchTouchMetrics } from "../lib/touchMetrics";
 import { isMetricsLimitKey, metricsGradientId, metricsStrokeColor } from "../lib/metricsChart";
+import { POLL_INTERVAL_MS, isStale, shouldPoll } from "../lib/metricsPolling";
 import { SectionHeader } from "./SectionHeader";
 import { TabPanel } from "./TabPanel";
 
@@ -136,38 +137,83 @@ export const ArchitectureDiagram = () => {
   const [loading, setLoading] = useState(true);
   const dashboardTitle = "Edge Bytes Served by Country";
 
+  const activeRef = useRef(true);
+  const hasDataRef = useRef(false);
+  const lastFetchedAtRef = useRef(0);
+
+  const fetchRuntimeSnapshot = useCallback(async (force = false) => {
+    if (!force && !isStale(lastFetchedAtRef.current, Date.now())) {
+      return;
+    }
+    lastFetchedAtRef.current = Date.now();
+
+    try {
+      const response = await fetch("/data/data.json");
+      if (!activeRef.current) return;
+
+      if (response.ok) {
+        const data = await response.json();
+        if (!activeRef.current) return;
+        setSnapshotData(data);
+        hasDataRef.current = true;
+        setIsUnavailable(false);
+      } else if (!hasDataRef.current) {
+        // Only surface the error card if we have nothing to show. A failed refresh over
+        // an already-rendered chart should leave that chart alone.
+        setIsUnavailable(true);
+      }
+    } catch (err) {
+      console.warn("Could not fetch runtime /data/data.json:", err);
+      if (activeRef.current && !hasDataRef.current) {
+        setIsUnavailable(true);
+      }
+    } finally {
+      if (activeRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
   useEffect(() => {
-    let active = true;
-    const fetchRuntimeSnapshot = async () => {
-      try {
-        const response = await fetch("/data/data.json");
-        if (response.ok) {
-          const data = await response.json();
-          if (active) {
-            setSnapshotData(data);
-            setIsUnavailable(false);
-            setLoading(false);
-          }
-        } else {
-          if (active) {
-            setIsUnavailable(true);
-            setLoading(false);
-          }
-        }
-      } catch (err) {
-        console.warn("Could not fetch runtime /data/data.json:", err);
-        if (active) {
-          setIsUnavailable(true);
-          setLoading(false);
-        }
+    activeRef.current = true;
+    fetchRuntimeSnapshot(true);
+    return () => {
+      activeRef.current = false;
+    };
+  }, [fetchRuntimeSnapshot]);
+
+  // The payload is cheap to serve from the edge, so refresh it — but only while someone
+  // is actually looking at the chart.
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | undefined;
+
+    const stop = () => {
+      if (timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
       }
     };
 
-    fetchRuntimeSnapshot();
-    return () => {
-      active = false;
+    const sync = () => {
+      if (!shouldPoll(activeTab, document.visibilityState)) {
+        stop();
+        return;
+      }
+      // Throttled, so flipping tabs repeatedly cannot storm the origin.
+      fetchRuntimeSnapshot();
+      if (timer === undefined) {
+        timer = setInterval(() => fetchRuntimeSnapshot(true), POLL_INTERVAL_MS);
+      }
     };
-  }, []);
+
+    sync();
+    document.addEventListener("visibilitychange", sync);
+
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", sync);
+    };
+  }, [activeTab, fetchRuntimeSnapshot]);
 
   // Parse the matrix payload into coordinate records. The Worker deliberately emits
   // the same query_range shape the old cron produced, so this parser is unchanged.
