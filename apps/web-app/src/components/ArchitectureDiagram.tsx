@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "motion/react";
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import { 
   Activity, 
   LayoutDashboard, 
@@ -21,6 +21,7 @@ import {
 import DIAGRAM_URL from "../assets/images/Untitled-2026-05-16-2229.svg";
 import { getPinchTouchMetrics } from "../lib/touchMetrics";
 import { isMetricsLimitKey, metricsGradientId, metricsStrokeColor } from "../lib/metricsChart";
+import { POLL_INTERVAL_MS, isStale, shouldPoll } from "../lib/metricsPolling";
 import { SectionHeader } from "./SectionHeader";
 import { TabPanel } from "./TabPanel";
 
@@ -134,42 +135,81 @@ export const ArchitectureDiagram = () => {
   const [snapshotData, setSnapshotData] = useState<any>(null);
   const [isUnavailable, setIsUnavailable] = useState(false);
   const [loading, setLoading] = useState(true);
-  const dashboardTitle = "Memory Usage by Cluster Namespace";
+  const dashboardTitle = "Edge Bytes Served by Country";
+
+  const activeRef = useRef(true);
+  const hasDataRef = useRef(false);
+  const lastFetchedAtRef = useRef(0);
+
+  const fetchRuntimeSnapshot = useCallback(async (force = false) => {
+    if (!force && !isStale(lastFetchedAtRef.current, Date.now())) {
+      return;
+    }
+    lastFetchedAtRef.current = Date.now();
+
+    try {
+      const response = await fetch("/data/data.json");
+      if (!activeRef.current) return;
+
+      if (response.ok) {
+        const data = await response.json();
+        if (!activeRef.current) return;
+        setSnapshotData(data);
+        hasDataRef.current = true;
+        setIsUnavailable(false);
+      } else if (!hasDataRef.current) {
+        setIsUnavailable(true);
+      }
+    } catch (err) {
+      console.warn("Could not fetch runtime /data/data.json:", err);
+      if (activeRef.current && !hasDataRef.current) {
+        setIsUnavailable(true);
+      }
+    } finally {
+      if (activeRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
-    let active = true;
-    const fetchRuntimeSnapshot = async () => {
-      try {
-        const response = await fetch("/data/data.json");
-        if (response.ok) {
-          const data = await response.json();
-          if (active) {
-            setSnapshotData(data);
-            setIsUnavailable(false);
-            setLoading(false);
-          }
-        } else {
-          if (active) {
-            setIsUnavailable(true);
-            setLoading(false);
-          }
-        }
-      } catch (err) {
-        console.warn("Could not fetch runtime /data/data.json:", err);
-        if (active) {
-          setIsUnavailable(true);
-          setLoading(false);
-        }
+    activeRef.current = true;
+    fetchRuntimeSnapshot(true);
+    return () => {
+      activeRef.current = false;
+    };
+  }, [fetchRuntimeSnapshot]);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | undefined;
+
+    const stop = () => {
+      if (timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
       }
     };
 
-    fetchRuntimeSnapshot();
-    return () => {
-      active = false;
+    const sync = () => {
+      if (!shouldPoll(activeTab, document.visibilityState)) {
+        stop();
+        return;
+      }
+      fetchRuntimeSnapshot();
+      if (timer === undefined) {
+        timer = setInterval(() => fetchRuntimeSnapshot(true), POLL_INTERVAL_MS);
+      }
     };
-  }, []);
 
-  // Parse Prometheus range query matrix results to coordinate records
+    sync();
+    document.addEventListener("visibilitychange", sync);
+
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", sync);
+    };
+  }, [activeTab, fetchRuntimeSnapshot]);
+
   const parsePanelMetrics = (panel: any): any[] => {
     if (!panel || !panel.rawData) return [];
 
@@ -183,7 +223,7 @@ export const ArchitectureDiagram = () => {
         // Dynamically resolve legend/series label name from available keys
         const getSeriesLabel = (metric: Record<string, string>): string => {
           if (!metric) return "Value";
-          const preferredLabels = ["pod", "namespace", "container", "instance", "job", "device", "host", "service"];
+          const preferredLabels = ["country", "pod", "namespace", "container", "instance", "job", "device", "host", "service"];
           for (const label of preferredLabels) {
             if (metric[label]) return metric[label];
           }
@@ -211,11 +251,12 @@ export const ArchitectureDiagram = () => {
 
           if (!mergedByTime[timestampMillis]) {
             const date = new Date(timestampMillis);
+            const day = date.getDate().toString().padStart(2, "0");
+            const month = (date.getMonth() + 1).toString().padStart(2, "0");
             const hrs = date.getHours().toString().padStart(2, "0");
-            const mins = date.getMinutes().toString().padStart(2, "0");
             mergedByTime[timestampMillis] = {
               timestampMillis,
-              timestamp: `${hrs}:${mins}`,
+              timestamp: `${day}/${month} ${hrs}:00`,
             };
           }
           mergedByTime[timestampMillis][seriesName] = Math.round(valInMiB * 100) / 100;
@@ -225,7 +266,7 @@ export const ArchitectureDiagram = () => {
       const sortedTimes = Object.keys(mergedByTime).map(Number).sort((a, b) => a - b);
       return sortedTimes.map(t => mergedByTime[t]);
     } catch (err) {
-      console.warn("Could not parse Prometheus matrix:", err);
+      console.warn("Could not parse analytics matrix:", err);
     }
     return [];
   };
@@ -244,12 +285,11 @@ export const ArchitectureDiagram = () => {
     return Array.from(keys);
   };
 
-  // Build the single adaptive timeline panel purely around the Prometheus range query response payload
   const panels = !isUnavailable && snapshotData ? [{
-    id: "prometheus-matrix-query",
+    id: "cloudflare-analytics-matrix",
     title: dashboardTitle,
     type: "timeseries",
-    unit: "LAST 10MIN",
+    unit: "LAST 7 DAYS",
     rawData: snapshotData?.data,
   }] : [];
 
@@ -262,7 +302,7 @@ export const ArchitectureDiagram = () => {
           title="How Am I"
           titleMuted="Running This?"
           titleClassName="text-5xl md:text-6xl font-black mb-4 text-slate-900 tracking-tighter"
-          description="I'm running this in AWS, using EKS so i could gain a deeper understanding of Kubernetes. Below is a diagram of the system design!"
+          description="I'm running this on Cloudflare Workers. Static assets are served straight from the edge, with a cron-triggered Worker turning Cloudflare's own analytics into the live chart below. Here's the system design!"
         />
 
         {/* Dynamic Navigation Tabs */}
@@ -345,7 +385,7 @@ export const ArchitectureDiagram = () => {
                   {loading ? (
                     <div className="flex flex-col items-center justify-center py-24 gap-4 text-slate-500 font-mono text-xs">
                       <div className="w-8 h-8 rounded-full border-2 border-slate-800 border-t-cyan-500 animate-spin" />
-                      <span>Querying Prometheus...</span>
+                      <span>Querying Cloudflare Analytics...</span>
                     </div>
                   ) : isUnavailable ? (
                     <div className="flex flex-col items-center justify-center p-8 py-20 border border-slate-900 rounded-2xl text-center">
@@ -465,20 +505,19 @@ export const ArchitectureDiagram = () => {
                       ) : (
                         <div className="p-12 text-center border-2 border-dashed border-slate-800 rounded-3xl col-span-2 text-slate-500 text-sm font-mono flex flex-col items-center justify-center gap-2">
                            <Info className="w-5 h-5 text-slate-600" />
-                           <span>No active metrics panels detected in query-range JSON</span>
+                           <span>No active metrics panels detected in the analytics response</span>
                         </div>
                       )}
                     </div>
                   )}
 
-                  {/* Accordion view looking into the actual Prometheus metrics payload */}
                   <div className="mt-2 border-t border-slate-900 pt-4 flex flex-col">
                     <button
                       onClick={() => setShowRawJson(!showRawJson)}
                       className="text-left py-2 text-[10px] font-mono uppercase tracking-wider text-slate-500 hover:text-slate-300 flex items-center gap-1.5 cursor-pointer self-start select-none transition-colors"
                     >
                       <Code className="w-3.5 h-3.5" />
-                      {showRawJson ? "[- Hide Prometheus response payload]" : "[+ View Prometheus response payload]"}
+                      {showRawJson ? "[- Hide Cloudflare Analytics response payload]" : "[+ View Cloudflare Analytics response payload]"}
                     </button>
 
                     <AnimatePresence>

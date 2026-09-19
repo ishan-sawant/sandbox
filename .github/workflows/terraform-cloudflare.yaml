@@ -1,0 +1,127 @@
+---
+name: "Terraform Cloudflare"
+
+on:
+  workflow_call:
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        description: "Cloudflare API token (Workers KV, DNS, Zone read)"
+        required: true
+      R2_ACCESS_KEY_ID:
+        description: "R2 S3 access key for the Terraform state backend"
+        required: true
+      R2_SECRET_ACCESS_KEY:
+        description: "R2 S3 secret key for the Terraform state backend"
+        required: true
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "~1.14.0"
+  MODULE_DIR: ./terraform/cloudflare
+
+jobs:
+  lint:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: Actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Format Check
+        working-directory: ${{ env.MODULE_DIR }}
+        run: terraform fmt -check -recursive -diff
+
+  plan:
+    name: Plan
+    needs: [lint]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./terraform/cloudflare
+    steps:
+      - name: Checkout
+        uses: Actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -a && . ./dev.env && set +a
+          terraform init -input=false \
+            -backend-config=bucket="${TF_STATE_BUCKET}" \
+            -backend-config=key="${TF_STATE_KEY}" \
+            -backend-config=endpoints="{\"s3\":\"https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com\"}"
+
+      - name: Terraform Validate
+        run: terraform validate -no-color
+
+      - name: Terraform Plan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -a && . ./dev.env && set +a
+          TF_VAR_cloudflare_account_id="${CLOUDFLARE_ACCOUNT_ID}" \
+            terraform plan -input=false -no-color
+
+  apply:
+    name: Apply
+    needs: [plan]
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./terraform/cloudflare
+    steps:
+      - name: Checkout
+        uses: Actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -a && . ./dev.env && set +a
+          terraform init -input=false \
+            -backend-config=bucket="${TF_STATE_BUCKET}" \
+            -backend-config=key="${TF_STATE_KEY}" \
+            -backend-config=endpoints="{\"s3\":\"https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com\"}"
+
+      - name: Terraform Apply
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -a && . ./dev.env && set +a
+          TF_VAR_cloudflare_account_id="${CLOUDFLARE_ACCOUNT_ID}" \
+            terraform apply -auto-approve -input=false

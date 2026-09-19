@@ -1,0 +1,37 @@
+{
+  "name": "yeahboi-dev-web-app",
+  "account_id": "9b6cf7ca0e10870b28ed30ef725920ff",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-09-19",
+
+  "workers_dev": false,
+
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+
+    "not_found_handling": "single-page-application",
+
+    "run_worker_first": ["/data/data.json"]
+  },
+
+  "kv_namespaces": [
+    {
+      "binding": "METRICS_KV",
+      "id": "91953083a5334a268459ef74f0fb161d"
+    }
+  ],
+
+  "vars": {
+    "CLOUDFLARE_ZONE_TAG": "8faa4ea9e5d22c52c4398a3145daef4e",
+    "SITE_HOSTNAME": "ishans.au"
+  },
+
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

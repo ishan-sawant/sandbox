@@ -1,0 +1,72 @@
+---
+name: "Deploy Worker"
+
+on:
+  workflow_call:
+    inputs: &shared_inputs
+      deploy:
+        description: "Upload to Cloudflare. When false, build and dry-run only."
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        description: "Workers Scripts:Edit, Workers KV Storage:Edit, Zone Analytics:Read"
+        required: true
+  workflow_dispatch:
+    inputs: *shared_inputs
+
+permissions:
+  contents: read
+
+env:
+  WRANGLER_VERSION: "4.135.0"
+
+jobs:
+  deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./apps/web-app
+    steps:
+      - name: Checkout
+        uses: Actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/web-app/package-lock.json
+
+      - name: Install
+        run: npm clean-install
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Wrangler Dry Run
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx --yes "wrangler@${WRANGLER_VERSION}" deploy --dry-run
+
+      - name: Deploy
+        if: ${{ inputs.deploy }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx --yes "wrangler@${WRANGLER_VERSION}" deploy
+
+      - name: Set runtime secret
+        if: ${{ inputs.deploy }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          printf '%s' "${CLOUDFLARE_API_TOKEN}" \
+            | npx --yes "wrangler@${WRANGLER_VERSION}" secret put CLOUDFLARE_API_TOKEN

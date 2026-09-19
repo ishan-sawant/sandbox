@@ -6,6 +6,17 @@ import { SectionHeader } from "./SectionHeader";
 export const Experience = () => {
   const experiences = [
     {
+      company: "Tendren",
+      roles: [
+        {
+          title: "DevOps Engineer",
+          period: "2026 - Present",
+          description: "Building and security hardening Tendren's cloud infrastructure that supports the Ezyst platform for Australia and New Zealand. Streamlining the team's agentic workflows in Claude Code by increasing cognitive offloading without sacrificing quality of output.",
+          tags: ["AWS", "Terraform", "GitHub Actions", "K8s", "Argo CD", "Helm", "Docker", "Claude Code"]
+        }
+      ]
+    },
+    {
       company: "Cartology",
       roles: [
         {

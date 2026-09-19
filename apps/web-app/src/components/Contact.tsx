@@ -90,7 +90,7 @@ export const Contact = ({ isNight }: ContactProps) => {
         
         <footer className="mt-8 pt-6 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-6 text-[10px] font-mono text-slate-300 uppercase tracking-[0.3em] font-black">
           <div className="flex gap-8">
-            <a href="https://github.com/ishan-cart" className="hover:text-brand-primary transition-colors">GitHub</a>
+            <a href="https://github.com/ishan-sawant" className="hover:text-brand-primary transition-colors">GitHub</a>
           </div>
         </footer>
       </div>

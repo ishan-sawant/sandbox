@@ -239,7 +239,7 @@ export default function App() {
             transition={{ delay: 0.2 }}
           >
             <p className="text-xl md:text-2xl text-slate-400 font-light max-w-2xl mx-auto mb-10 leading-relaxed">
-              <span className={`font-medium ${isNight ? 'text-slate-100' : 'text-slate-900'}`}>Passionate</span> about building <span className={`font-medium ${isNight ? 'text-slate-100' : 'text-slate-900'}`}>reliable systems</span> and streamlining <span className={`font-medium ${isNight ? 'text-slate-100' : 'text-slate-900'}`}>DevEx</span>.
+              <span className={`font-medium ${isNight ? 'text-slate-100' : 'text-slate-900'}`}>Passionate</span> about building <span className={`font-medium ${isNight ? 'text-slate-100' : 'text-slate-900'}`}>reliable systems</span> and streamlining <span className={`font-medium ${isNight ? 'text-slate-100' : 'text-slate-900'}`}>DevEx</span> in the agentic era.
             </p>
             
             <div className="flex flex-wrap justify-center gap-3 mb-10">
