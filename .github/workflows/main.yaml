@@ -97,6 +97,18 @@ jobs:
       application: web-app
       push: true
 
+  deploy-worker:
+    needs: [changes, terraform-cloudflare]
+    uses: ./.github/workflows/deploy-worker.yaml
+    if: always() && (needs.terraform-cloudflare.result == 'success' || needs.terraform-cloudflare.result == 'skipped') && needs.changes.outputs.web-app == 'true'
+    permissions:
+      contents: read
+    with:
+      # Pull requests build and dry-run only; uploads happen on main.
+      deploy: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
   helm-libraries:
     needs: [changes]
     if: ${{ needs.changes.outputs.helm-libraries == 'true' }}
