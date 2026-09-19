@@ -19,3 +19,4 @@ __pycache__
 .vscode/
 
 .docker-compose/fluent-bit/*.db
+.wrangler/
