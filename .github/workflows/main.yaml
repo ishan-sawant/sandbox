@@ -42,7 +42,10 @@ jobs:
 
   terraform:
     needs: [changes]
-    if: needs.changes.outputs.terraform != '[]'
+    # The second clause guards the case where cloudflare is the *only* changed module:
+    # the exclude below would then empty the matrix, and an empty matrix is a worse
+    # failure mode than simply not running the job.
+    if: needs.changes.outputs.terraform != '[]' && needs.changes.outputs.terraform != '["cloudflare"]'
     permissions:
       contents: read
       id-token: write
@@ -50,9 +53,26 @@ jobs:
       max-parallel: 1
       matrix:
         application: ${{ fromJson(needs.changes.outputs.terraform) }}
+        # terraform/cloudflare keeps its state in R2 and touches no AWS, so it cannot use
+        # this AWS-shaped workflow. It runs via terraform-cloudflare below.
+        exclude:
+          - application: cloudflare
     uses: ./.github/workflows/terraform.yaml
     with:
       application: ${{ matrix.application }}
+
+  terraform-cloudflare:
+    needs: [changes]
+    if: contains(fromJson(needs.changes.outputs.terraform), 'cloudflare')
+    permissions:
+      contents: read
+    uses: ./.github/workflows/terraform-cloudflare.yaml
+    # Declared explicitly rather than `inherit`: this workflow needs three secrets, and
+    # `inherit` would hand it every secret in the repository.
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 
   test-lambda:
     needs: [changes]
