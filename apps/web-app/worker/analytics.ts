@@ -1,34 +1,10 @@
-/**
- * Turns Cloudflare zone HTTP analytics into the Prometheus `query_range` matrix that
- * `ArchitectureDiagram.tsx` already knows how to parse.
- *
- * Two constraints drive the shape of this module:
- *
- * 1. The panel divides every value by 1024*1024 and labels the axis MiB. We therefore
- *    report `edgeResponseBytes`, which really is bytes, and leave that arithmetic alone.
- *    Feeding it request counts would render 0.00 across the board.
- * 2. The chart has six colours. The zone sees ~38 countries a week, so anything past the
- *    top five collapses into a single "Other" series.
- */
-
 export const BUCKET_SECONDS = 3600;
-export const WINDOW_HOURS = 168; // 7 days — 76% of buckets populated at current traffic
-/** Named series + Other = 6 = METRICS_CHART_COLORS.length. */
+export const WINDOW_HOURS = 168;
 export const MAX_NAMED_SERIES = 5;
 export const OTHER_LABEL = "Other";
 
-/**
- * Always charted, in this order, whatever the traffic looks like.
- *
- * Ranking purely by bytes gave an unstable legend: the five names reshuffled between
- * refreshes as a bot burst came and went, so a series changed colour under you. Pinning
- * the two that matter keeps their colours fixed, and home traffic stays visible even
- * though it is a rounding error next to the scanners.
- */
 export const PINNED_COUNTRIES = ["AU", "US"];
 
-/** Zone analytics is zone-wide; without this filter the panel plots scanner traffic
- *  against wildcard subdomains instead of the site. */
 export const DEFAULT_HOSTNAME = "ishans.au";
 
 export interface AnalyticsGroup {
@@ -43,7 +19,6 @@ export interface AnalyticsGroup {
 
 export interface MatrixSeries {
   metric: { country: string };
-  /** [unix seconds, value as string] — the shape parsePanelMetrics() coerces. */
   values: Array<[number, string]>;
 }
 
@@ -82,10 +57,6 @@ export interface AnalyticsQueryVariables {
   end: string;
 }
 
-/**
- * @param end Exclusive upper bound of the query range, normally "now". The range covers
- *            exactly WINDOW_HOURS, so the response holds the 168 buckets in [start, end).
- */
 export function buildAnalyticsQuery(opts: {
   zoneTag: string;
   hostname: string;
@@ -108,11 +79,6 @@ export function buildAnalyticsQuery(opts: {
 const floorToHour = (d: Date): number =>
   Math.floor(d.getTime() / 1000 / BUCKET_SECONDS) * BUCKET_SECONDS;
 
-/**
- * @param latestBucket The newest hourly bucket to plot, inclusive. The window runs back
- *                     WINDOW_HOURS - 1 hours from it, so the series is always exactly
- *                     WINDOW_HOURS points wide regardless of how sparse the traffic is.
- */
 export function toPrometheusMatrix(
   groups: AnalyticsGroup[],
   latestBucket: Date,
@@ -120,7 +86,6 @@ export function toPrometheusMatrix(
   const endSec = floorToHour(latestBucket);
   const startSec = endSec - (WINDOW_HOURS - 1) * BUCKET_SECONDS;
 
-  // country -> bucket seconds -> bytes
   const byCountry = new Map<string, Map<number, number>>();
   const totals = new Map<string, number>();
 
@@ -148,22 +113,17 @@ export function toPrometheusMatrix(
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([country]) => country);
 
-  // Pinned first, then the biggest of whatever is left, up to the palette size.
   const dynamic = ranked
     .filter((country) => !PINNED_COUNTRIES.includes(country))
     .slice(0, MAX_NAMED_SERIES - PINNED_COUNTRIES.length);
   const named = [...PINNED_COUNTRIES, ...dynamic];
   const rest = ranked.filter((country) => !named.includes(country));
 
-  // A pinned country with no traffic still gets a zero-filled series, so the legend and
-  // the colour assignment stay put.
   const series: MatrixSeries[] = named.map((country) => ({
     metric: { country },
     values: renderValues(byCountry.get(country) ?? new Map(), startSec, endSec),
   }));
 
-  // Other is always the sixth series, even when nothing overflowed, so the legend has a
-  // fixed shape rather than growing and shrinking with the traffic mix.
   const merged = new Map<number, number>();
   for (const country of rest) {
     for (const [bucket, bytes] of byCountry.get(country)!) {
@@ -178,8 +138,6 @@ export function toPrometheusMatrix(
   return { status: "success", data: { resultType: "matrix", result: series } };
 }
 
-/** Zero-fills the window: GraphQL only returns buckets that saw traffic, and gaps make
- *  the area chart render with holes. */
 function renderValues(
   buckets: Map<number, number>,
   startSec: number,
@@ -200,19 +158,10 @@ export const EMPTY_MATRIX: PrometheusMatrix = {
 export const GRAPHQL_ENDPOINT = "https://api.cloudflare.com/client/v4/graphql";
 
 export interface WindowAnchors {
-  /** Exclusive upper bound of the query range, aligned to the hour. */
   endExclusive: Date;
-  /** Newest bucket to plot, inclusive — the last *complete* hour. */
   latestBucket: Date;
 }
 
-/**
- * The current hour is always partial and would render as a dip at the right edge of the
- * chart, so the newest plotted bucket is the last complete hour. Anchoring both the
- * query and the matrix here keeps them exactly aligned: the query returns the 168
- * buckets in [endExclusive - 168h, endExclusive), and the matrix plots
- * [latestBucket - 167h, latestBucket] — the same set.
- */
 export function windowAnchors(now: Date): WindowAnchors {
   const endMs = Math.floor(now.getTime() / (BUCKET_SECONDS * 1000)) * BUCKET_SECONDS * 1000;
   return {
@@ -229,11 +178,6 @@ export interface AnalyticsSource {
   fetchImpl?: typeof fetch;
 }
 
-/**
- * Throws on any failure. The caller must treat a throw as "keep whatever is already
- * stored" — writing an empty matrix over good data would show an empty chart and look
- * like the site had no traffic, which is worse than serving a few minutes of stale data.
- */
 export async function fetchAnalyticsMatrix(src: AnalyticsSource): Promise<PrometheusMatrix> {
   const doFetch = src.fetchImpl ?? fetch;
   const { endExclusive, latestBucket } = windowAnchors(src.now ?? new Date());

@@ -48,8 +48,6 @@ test("sets the content type and edge cache headers the panel relies on", async (
 });
 
 test("an empty KV returns a valid empty matrix, not a 500", async () => {
-  // The panel's only other state is a red "Technical Difficulties" card, so a cold
-  // namespace before the first cron run must still look like a successful query.
   const res = await get(DATA_PATH, makeEnv());
 
   assert.equal(res.status, 200);
@@ -87,10 +85,6 @@ test("the data path is the one the component already fetches", () => {
 });
 
 test("exports nothing but the default handler", async () => {
-  // workerd treats every named export of the entrypoint as a handler or binding, so a
-  // stray `export const` here fails at boot with "Incorrect type for map entry ... not
-  // of type 'function or ExportedHandler'". Unit tests import this module under Node,
-  // where named exports are legal, so only this assertion catches the regression.
   const mod = await import("./index.ts");
   assert.deepEqual(Object.keys(mod), ["default"]);
 });

@@ -21,8 +21,6 @@ const fixture = JSON.parse(
 );
 const groups: AnalyticsGroup[] = fixture.data.viewer.zones[0].httpRequestsAdaptiveGroups;
 
-// The fixture is a real response, so anchor the window to its newest bucket rather than
-// to "now" — otherwise these tests rot the moment the capture ages past seven days.
 const newestHour = new Date(
   groups.map((g) => g.dimensions.datetimeHour).sort().at(-1)!,
 );
@@ -54,7 +52,6 @@ test("pins AU and US at the front regardless of how little traffic they carry", 
 });
 
 test("a pinned country with zero traffic still gets a full zero-filled series", () => {
-  // AU barely registers against the scanner noise, but it must never vanish.
   const withoutAu = groups.filter((g) => g.dimensions.clientCountryName !== "AU");
   const au = seriesOf(toPrometheusMatrix(withoutAu, newestHour)).find(
     (s) => s.metric.country === "AU",
@@ -65,9 +62,6 @@ test("a pinned country with zero traffic still gets a full zero-filled series", 
 });
 
 test("Other is present even when nothing overflows into it", () => {
-  // Degenerate case: only the pinned countries have traffic, so there is nothing to fill
-  // the three dynamic slots. Padding with invented country names would be worse than a
-  // shorter legend, so the guarantee is "Other is always last", not "always six rows".
   const twoOnly = groups.filter((g) => ["AU", "US"].includes(g.dimensions.clientCountryName));
   const result = seriesOf(toPrometheusMatrix(twoOnly, newestHour));
   const other = result.at(-1);
@@ -164,11 +158,6 @@ test("query pins the hostname filter and the window", () => {
     "query window must match the chart window",
   );
 });
-
-// ---------------------------------------------------------------------------
-// fetchAnalyticsMatrix — network edges. The cron must never turn a failed query
-// into a successful-looking empty chart.
-// ---------------------------------------------------------------------------
 
 const okFetch = (body: unknown) =>
   (async () => new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;

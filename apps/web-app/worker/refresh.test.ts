@@ -52,8 +52,6 @@ test("the written payload is the matrix the panel expects", async () => {
 });
 
 test("a failed query leaves the stored payload untouched", async () => {
-  // Stale-but-good beats empty: overwriting with an empty matrix would render a blank
-  // chart that looks like the site got no traffic at all.
   const boom = (async () => {
     throw new Error("network down");
   }) as unknown as typeof fetch;

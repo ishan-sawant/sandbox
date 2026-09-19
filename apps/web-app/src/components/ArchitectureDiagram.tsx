@@ -158,8 +158,6 @@ export const ArchitectureDiagram = () => {
         hasDataRef.current = true;
         setIsUnavailable(false);
       } else if (!hasDataRef.current) {
-        // Only surface the error card if we have nothing to show. A failed refresh over
-        // an already-rendered chart should leave that chart alone.
         setIsUnavailable(true);
       }
     } catch (err) {
@@ -182,8 +180,6 @@ export const ArchitectureDiagram = () => {
     };
   }, [fetchRuntimeSnapshot]);
 
-  // The payload is cheap to serve from the edge, so refresh it — but only while someone
-  // is actually looking at the chart.
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
 
@@ -199,7 +195,6 @@ export const ArchitectureDiagram = () => {
         stop();
         return;
       }
-      // Throttled, so flipping tabs repeatedly cannot storm the origin.
       fetchRuntimeSnapshot();
       if (timer === undefined) {
         timer = setInterval(() => fetchRuntimeSnapshot(true), POLL_INTERVAL_MS);
@@ -215,8 +210,6 @@ export const ArchitectureDiagram = () => {
     };
   }, [activeTab, fetchRuntimeSnapshot]);
 
-  // Parse the matrix payload into coordinate records. The Worker deliberately emits
-  // the same query_range shape the old cron produced, so this parser is unchanged.
   const parsePanelMetrics = (panel: any): any[] => {
     if (!panel || !panel.rawData) return [];
 
@@ -261,8 +254,6 @@ export const ArchitectureDiagram = () => {
             const day = date.getDate().toString().padStart(2, "0");
             const month = (date.getMonth() + 1).toString().padStart(2, "0");
             const hrs = date.getHours().toString().padStart(2, "0");
-            // Buckets are hourly across a seven-day window, so the label has to carry the
-            // date: a bare HH:MM would repeat seven times over and read as a single day.
             mergedByTime[timestampMillis] = {
               timestampMillis,
               timestamp: `${day}/${month} ${hrs}:00`,
@@ -294,7 +285,6 @@ export const ArchitectureDiagram = () => {
     return Array.from(keys);
   };
 
-  // Build the single adaptive timeline panel purely around the analytics response payload
   const panels = !isUnavailable && snapshotData ? [{
     id: "cloudflare-analytics-matrix",
     title: dashboardTitle,
@@ -521,7 +511,6 @@ export const ArchitectureDiagram = () => {
                     </div>
                   )}
 
-                  {/* Accordion view looking into the actual analytics payload */}
                   <div className="mt-2 border-t border-slate-900 pt-4 flex flex-col">
                     <button
                       onClick={() => setShowRawJson(!showRawJson)}

@@ -1,9 +1,4 @@
 ---
-# Separate from terraform.yaml because that workflow is AWS-shaped end to end: it assumes
-# an OIDC role, pulls the Cloudflare token from Secrets Manager, and passes a DynamoDB
-# lock table plus a real AWS region to `terraform init`. This module keeps its state in R2,
-# which needs region "auto", an endpoint override and no lock table, so it cannot reuse it.
-# Nothing here touches AWS.
 name: "Terraform Cloudflare"
 
 on:
@@ -67,8 +62,6 @@ jobs:
 
       - name: Terraform Init
         env:
-          # R2 speaks the S3 API, so the s3 backend authenticates with the R2 token's
-          # access key pair rather than any AWS credential.
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |

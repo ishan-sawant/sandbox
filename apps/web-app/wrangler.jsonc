@@ -4,45 +4,29 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-09-19",
 
-  // The account has no workers.dev subdomain and this Worker does not need one: it is
-  // reached through the ishans.au custom domain that terraform/cloudflare manages.
-  // Left enabled, wrangler tries to auto-register a subdomain and the deploy fails.
   "workers_dev": false,
 
   "assets": {
-    // Vite's default output directory — vite.config.ts sets no `build.outDir`.
     "directory": "./dist",
     "binding": "ASSETS",
 
-    // No client-side router, but this keeps any stray path returning the app rather
-    // than a bare 404.
     "not_found_handling": "single-page-application",
 
-    // Only this path invokes the Worker. Everything else is served straight from the
-    // asset store, which is free and unbilled and never counts against the Worker
-    // request quota. Without this rule an asset at the same path would shadow the
-    // handler entirely.
     "run_worker_first": ["/data/data.json"]
   },
 
   "kv_namespaces": [
     {
       "binding": "METRICS_KV",
-      // terraform/cloudflare owns this namespace; id comes from its kv_namespace_id
-      // output. Not a secret.
       "id": "91953083a5334a268459ef74f0fb161d"
     }
   ],
 
   "vars": {
     "CLOUDFLARE_ZONE_TAG": "8faa4ea9e5d22c52c4398a3145daef4e",
-    // Zone analytics is zone-wide; without this filter the panel plots scanner traffic
-    // against wildcard subdomains instead of the site.
     "SITE_HOSTNAME": "ishans.au"
   },
 
-  // Every 5 minutes = 288 KV writes/day, against a free-plan cap of 1,000.
-  // Per-minute would be 1,440 and would blow the quota.
   "triggers": {
     "crons": ["*/5 * * * *"]
   },

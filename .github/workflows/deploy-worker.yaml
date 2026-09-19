@@ -1,7 +1,4 @@
 ---
-# Builds the Vite bundle and ships it to Cloudflare Workers static assets.
-# Independent of build-image.yaml, which still builds the nginx image for the EKS path —
-# both run off the same `web-app` paths filter until AWS is decommissioned.
 name: "Deploy Worker"
 
 on:
@@ -23,9 +20,6 @@ permissions:
   contents: read
 
 env:
-  # Pinned rather than added to devDependencies: the legacy Dockerfile runs
-  # `npm clean-install`, and wrangler's dependency tree would slow that build for a path
-  # that is about to be decommissioned.
   WRANGLER_VERSION: "4.135.0"
 
 jobs:
@@ -58,8 +52,6 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Always runs, including on pull requests: bundles the Worker and resolves every
-      # binding without uploading anything, so a broken config fails the PR.
       - name: Wrangler Dry Run
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -71,8 +63,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx --yes "wrangler@${WRANGLER_VERSION}" deploy
 
-      # After the deploy, so the script exists on a first-ever run. Piped via stdin so the
-      # value never appears in a command line or the run log.
       - name: Set runtime secret
         if: ${{ inputs.deploy }}
         env:
