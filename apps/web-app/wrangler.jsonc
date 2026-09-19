@@ -4,6 +4,11 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-09-19",
 
+  // The account has no workers.dev subdomain and this Worker does not need one: it is
+  // reached through the ishans.au custom domain that terraform/cloudflare manages.
+  // Left enabled, wrangler tries to auto-register a subdomain and the deploy fails.
+  "workers_dev": false,
+
   "assets": {
     // Vite's default output directory — vite.config.ts sets no `build.outDir`.
     "directory": "./dist",
