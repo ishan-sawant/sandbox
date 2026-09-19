@@ -20,3 +20,4 @@ __pycache__
 
 .docker-compose/fluent-bit/*.db
 .wrangler/
+.dev.vars

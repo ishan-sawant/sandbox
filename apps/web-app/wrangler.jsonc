@@ -35,6 +35,12 @@
     "SITE_HOSTNAME": "ishans.au"
   },
 
+  // Every 5 minutes = 288 KV writes/day, against a free-plan cap of 1,000.
+  // Per-minute would be 1,440 and would blow the quota.
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+
   "observability": {
     "enabled": true
   }

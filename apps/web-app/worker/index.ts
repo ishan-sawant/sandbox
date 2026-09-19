@@ -1,30 +1,7 @@
 import { EMPTY_MATRIX } from "./analytics.ts";
 import { CACHE_CONTROL, DATA_PATH, KV_KEY } from "./contract.ts";
-
-/**
- * Only the narrow slice of the Workers runtime this Worker actually touches is typed
- * here, rather than pulling in @cloudflare/workers-types. The surface is two methods,
- * and the legacy Docker image still runs `npm clean-install`, so adding wrangler's
- * dependency tree to devDependencies would slow that build for no benefit. CI pins
- * wrangler via `npx wrangler@<version>` instead.
- */
-export interface KVNamespaceLike {
-  get(key: string, options?: { cacheTtl?: number }): Promise<string | null>;
-  put?(key: string, value: string): Promise<void>;
-}
-
-export interface FetcherLike {
-  fetch(request: Request): Promise<Response>;
-}
-
-export interface Env {
-  METRICS_KV: KVNamespaceLike;
-  ASSETS: FetcherLike;
-  /** Zone Analytics:Read, set with `wrangler secret put`. */
-  CLOUDFLARE_API_TOKEN: string;
-  CLOUDFLARE_ZONE_TAG: string;
-  SITE_HOSTNAME: string;
-}
+import type { Env } from "./env.ts";
+import { refreshMetrics } from "./refresh.ts";
 
 const jsonResponse = (body: string): Response =>
   new Response(body, {
@@ -63,5 +40,9 @@ export default {
     // requests never reach the Worker at all — they are served directly, free and
     // unbilled — but the fallthrough keeps `wrangler dev` and any stray route honest.
     return env.ASSETS.fetch(request);
+  },
+
+  async scheduled(_event: unknown, env: Env): Promise<void> {
+    await refreshMetrics(env);
   },
 };

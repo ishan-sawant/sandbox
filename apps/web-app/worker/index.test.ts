@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { DATA_PATH, KV_KEY } from "./contract.ts";
+import type { Env } from "./env.ts";
 import worker from "./index.ts";
-import type { Env } from "./index.ts";
 
 const ASSET_BODY = "<!doctype html><title>spa</title>";
 
@@ -11,6 +11,7 @@ function makeEnv(overrides: Partial<Env> = {}, kv: Record<string, string> = {}):
   return {
     METRICS_KV: {
       get: async (key: string) => (key in kv ? kv[key] : null),
+      put: async () => {},
     },
     ASSETS: {
       fetch: async () => new Response(ASSET_BODY, { headers: { "content-type": "text/html" } }),
@@ -64,6 +65,7 @@ test("a KV failure degrades to the empty matrix rather than erroring", async () 
       get: async () => {
         throw new Error("KV unavailable");
       },
+      put: async () => {},
     },
   });
 

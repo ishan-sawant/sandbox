@@ -7,8 +7,11 @@ import {
   OTHER_LABEL,
   TOP_N_COUNTRIES,
   WINDOW_HOURS,
+  GRAPHQL_ENDPOINT,
   buildAnalyticsQuery,
+  fetchAnalyticsMatrix,
   toPrometheusMatrix,
+  windowAnchors,
   type AnalyticsGroup,
 } from "./analytics.ts";
 
@@ -136,5 +139,67 @@ test("query pins the hostname filter and the window", () => {
     (Date.parse(variables.end) - Date.parse(variables.start)) / 1000,
     WINDOW_HOURS * BUCKET_SECONDS,
     "query window must match the chart window",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// fetchAnalyticsMatrix — network edges. The cron must never turn a failed query
+// into a successful-looking empty chart.
+// ---------------------------------------------------------------------------
+
+const okFetch = (body: unknown) =>
+  (async () => new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;
+
+const SOURCE = {
+  token: "tok",
+  zoneTag: "zone123",
+  hostname: "ishans.au",
+  now: new Date("2026-09-19T12:34:00Z"),
+};
+
+test("window anchors align to the hour and the newest bucket is complete", () => {
+  const { endExclusive, latestBucket } = windowAnchors(new Date("2026-09-19T12:34:56Z"));
+  assert.equal(endExclusive.toISOString(), "2026-09-19T12:00:00.000Z");
+  assert.equal(
+    latestBucket.toISOString(),
+    "2026-09-19T11:00:00.000Z",
+    "plot the last complete hour, not the partial current one",
+  );
+});
+
+test("fetches the GraphQL endpoint with bearer auth", async () => {
+  let seenUrl = "";
+  let seenAuth = "";
+  const spy = (async (url: string, init: RequestInit) => {
+    seenUrl = String(url);
+    seenAuth = String((init.headers as Record<string, string>).Authorization);
+    return new Response(JSON.stringify(fixture), { status: 200 });
+  }) as unknown as typeof fetch;
+
+  await fetchAnalyticsMatrix({ ...SOURCE, fetchImpl: spy });
+  assert.equal(seenUrl, GRAPHQL_ENDPOINT);
+  assert.equal(seenAuth, "Bearer tok");
+});
+
+test("turns a real response into a bounded, zero-filled matrix", async () => {
+  const matrix = await fetchAnalyticsMatrix({ ...SOURCE, fetchImpl: okFetch(fixture) });
+  assert.equal(matrix.status, "success");
+  assert.ok(matrix.data.result.length <= TOP_N_COUNTRIES + 1);
+  for (const s of matrix.data.result) assert.equal(s.values.length, WINDOW_HOURS);
+});
+
+test("throws when GraphQL reports errors", async () => {
+  const body = { data: null, errors: [{ message: "Authentication error" }] };
+  await assert.rejects(() => fetchAnalyticsMatrix({ ...SOURCE, fetchImpl: okFetch(body) }));
+});
+
+test("throws on a non-200 response", async () => {
+  const bad = (async () => new Response("nope", { status: 403 })) as unknown as typeof fetch;
+  await assert.rejects(() => fetchAnalyticsMatrix({ ...SOURCE, fetchImpl: bad }));
+});
+
+test("throws on a malformed body rather than inventing an empty chart", async () => {
+  await assert.rejects(() =>
+    fetchAnalyticsMatrix({ ...SOURCE, fetchImpl: okFetch({ data: { viewer: { zones: [] } } }) }),
   );
 });

@@ -181,3 +181,82 @@ export const EMPTY_MATRIX: PrometheusMatrix = {
   status: "success",
   data: { resultType: "matrix", result: [] },
 };
+
+export const GRAPHQL_ENDPOINT = "https://api.cloudflare.com/client/v4/graphql";
+
+export interface WindowAnchors {
+  /** Exclusive upper bound of the query range, aligned to the hour. */
+  endExclusive: Date;
+  /** Newest bucket to plot, inclusive — the last *complete* hour. */
+  latestBucket: Date;
+}
+
+/**
+ * The current hour is always partial and would render as a dip at the right edge of the
+ * chart, so the newest plotted bucket is the last complete hour. Anchoring both the
+ * query and the matrix here keeps them exactly aligned: the query returns the 168
+ * buckets in [endExclusive - 168h, endExclusive), and the matrix plots
+ * [latestBucket - 167h, latestBucket] — the same set.
+ */
+export function windowAnchors(now: Date): WindowAnchors {
+  const endMs = Math.floor(now.getTime() / (BUCKET_SECONDS * 1000)) * BUCKET_SECONDS * 1000;
+  return {
+    endExclusive: new Date(endMs),
+    latestBucket: new Date(endMs - BUCKET_SECONDS * 1000),
+  };
+}
+
+export interface AnalyticsSource {
+  token: string;
+  zoneTag: string;
+  hostname: string;
+  now?: Date;
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * Throws on any failure. The caller must treat a throw as "keep whatever is already
+ * stored" — writing an empty matrix over good data would show an empty chart and look
+ * like the site had no traffic, which is worse than serving a few minutes of stale data.
+ */
+export async function fetchAnalyticsMatrix(src: AnalyticsSource): Promise<PrometheusMatrix> {
+  const doFetch = src.fetchImpl ?? fetch;
+  const { endExclusive, latestBucket } = windowAnchors(src.now ?? new Date());
+
+  const body = buildAnalyticsQuery({
+    zoneTag: src.zoneTag,
+    hostname: src.hostname,
+    end: endExclusive,
+  });
+
+  const response = await doFetch(GRAPHQL_ENDPOINT, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${src.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Analytics API returned HTTP ${response.status}`);
+  }
+
+  const payload = (await response.json()) as {
+    data?: { viewer?: { zones?: Array<{ httpRequestsAdaptiveGroups?: AnalyticsGroup[] }> } };
+    errors?: Array<{ message?: string }> | null;
+  };
+
+  if (payload.errors && payload.errors.length > 0) {
+    throw new Error(
+      `Analytics API errors: ${payload.errors.map((e) => e.message ?? "unknown").join("; ")}`,
+    );
+  }
+
+  const groups = payload.data?.viewer?.zones?.[0]?.httpRequestsAdaptiveGroups;
+  if (!Array.isArray(groups)) {
+    throw new Error("Analytics API response missing httpRequestsAdaptiveGroups");
+  }
+
+  return toPrometheusMatrix(groups, latestBucket);
+}
