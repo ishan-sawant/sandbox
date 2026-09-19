@@ -5,7 +5,8 @@ import { test } from "node:test";
 import {
   BUCKET_SECONDS,
   OTHER_LABEL,
-  TOP_N_COUNTRIES,
+  MAX_NAMED_SERIES,
+  PINNED_COUNTRIES,
   WINDOW_HOURS,
   GRAPHQL_ENDPOINT,
   buildAnalyticsQuery,
@@ -32,15 +33,48 @@ test("fixture is a real response with more countries than the palette can colour
   assert.ok(groups.length > 0, "fixture should not be empty");
   const countries = new Set(groups.map((g) => g.dimensions.clientCountryName));
   assert.ok(
-    countries.size > TOP_N_COUNTRIES + 1,
+    countries.size > MAX_NAMED_SERIES + 1,
     `fixture should exercise the cap; got ${countries.size} countries`,
   );
 });
 
-test("caps at top-N countries plus Other, never more than the 6 chart colours", () => {
+test("always renders exactly six series: five named plus Other", () => {
   const result = seriesOf(toPrometheusMatrix(groups, newestHour));
-  assert.ok(result.length <= TOP_N_COUNTRIES + 1, `got ${result.length} series`);
-  assert.equal(result.at(-1)?.metric.country, OTHER_LABEL, "Other sorts last");
+  assert.equal(result.length, MAX_NAMED_SERIES + 1, `got ${result.length} series`);
+  assert.equal(result.at(-1)?.metric.country, OTHER_LABEL, "Other is always last");
+});
+
+test("pins AU and US at the front regardless of how little traffic they carry", () => {
+  const result = seriesOf(toPrometheusMatrix(groups, newestHour));
+  assert.deepEqual(
+    result.slice(0, PINNED_COUNTRIES.length).map((s) => s.metric.country),
+    PINNED_COUNTRIES,
+    "pinned countries hold the first colours so the legend cannot reshuffle",
+  );
+});
+
+test("a pinned country with zero traffic still gets a full zero-filled series", () => {
+  // AU barely registers against the scanner noise, but it must never vanish.
+  const withoutAu = groups.filter((g) => g.dimensions.clientCountryName !== "AU");
+  const au = seriesOf(toPrometheusMatrix(withoutAu, newestHour)).find(
+    (s) => s.metric.country === "AU",
+  );
+  assert.ok(au, "AU must still be charted");
+  assert.equal(au.values.length, WINDOW_HOURS);
+  assert.ok(au.values.every(([, v]) => v === "0"));
+});
+
+test("Other is present even when nothing overflows into it", () => {
+  // Degenerate case: only the pinned countries have traffic, so there is nothing to fill
+  // the three dynamic slots. Padding with invented country names would be worse than a
+  // shorter legend, so the guarantee is "Other is always last", not "always six rows".
+  const twoOnly = groups.filter((g) => ["AU", "US"].includes(g.dimensions.clientCountryName));
+  const result = seriesOf(toPrometheusMatrix(twoOnly, newestHour));
+  const other = result.at(-1);
+  assert.equal(other?.metric.country, OTHER_LABEL);
+  assert.equal(other?.values.length, WINDOW_HOURS, "still zero-filled across the window");
+  assert.ok(other?.values.every(([, v]) => v === "0"));
+  assert.ok(result.length <= MAX_NAMED_SERIES + 1);
 });
 
 test("every series is zero-filled across the whole window", () => {
@@ -100,17 +134,6 @@ test("emits a well-formed empty matrix rather than throwing on no data", () => {
   assert.equal(empty.status, "success");
   assert.equal(empty.data.resultType, "matrix");
   assert.deepEqual(empty.data.result, []);
-});
-
-test("omits an all-zero Other series when the countries already fit", () => {
-  const twoCountries = groups.filter((g) =>
-    ["AU", "SG"].includes(g.dimensions.clientCountryName),
-  );
-  const result = seriesOf(toPrometheusMatrix(twoCountries, newestHour));
-  assert.ok(
-    !result.some((s) => s.metric.country === OTHER_LABEL),
-    "should not pad with an empty Other series",
-  );
 });
 
 test("discards buckets outside the window", () => {
@@ -184,7 +207,7 @@ test("fetches the GraphQL endpoint with bearer auth", async () => {
 test("turns a real response into a bounded, zero-filled matrix", async () => {
   const matrix = await fetchAnalyticsMatrix({ ...SOURCE, fetchImpl: okFetch(fixture) });
   assert.equal(matrix.status, "success");
-  assert.ok(matrix.data.result.length <= TOP_N_COUNTRIES + 1);
+  assert.equal(matrix.data.result.length, MAX_NAMED_SERIES + 1);
   for (const s of matrix.data.result) assert.equal(s.values.length, WINDOW_HOURS);
 });
 

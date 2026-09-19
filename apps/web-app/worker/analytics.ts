@@ -13,8 +13,19 @@
 
 export const BUCKET_SECONDS = 3600;
 export const WINDOW_HOURS = 168; // 7 days — 76% of buckets populated at current traffic
-export const TOP_N_COUNTRIES = 5; // + Other = 6 = METRICS_CHART_COLORS.length
+/** Named series + Other = 6 = METRICS_CHART_COLORS.length. */
+export const MAX_NAMED_SERIES = 5;
 export const OTHER_LABEL = "Other";
+
+/**
+ * Always charted, in this order, whatever the traffic looks like.
+ *
+ * Ranking purely by bytes gave an unstable legend: the five names reshuffled between
+ * refreshes as a bot burst came and went, so a series changed colour under you. Pinning
+ * the two that matter keeps their colours fixed, and home traffic stays visible even
+ * though it is a rounding error next to the scanners.
+ */
+export const PINNED_COUNTRIES = ["AU", "US"];
 
 /** Zone analytics is zone-wide; without this filter the panel plots scanner traffic
  *  against wildcard subdomains instead of the site. */
@@ -137,28 +148,32 @@ export function toPrometheusMatrix(
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([country]) => country);
 
-  const top = ranked.slice(0, TOP_N_COUNTRIES);
-  const rest = ranked.slice(TOP_N_COUNTRIES);
+  // Pinned first, then the biggest of whatever is left, up to the palette size.
+  const dynamic = ranked
+    .filter((country) => !PINNED_COUNTRIES.includes(country))
+    .slice(0, MAX_NAMED_SERIES - PINNED_COUNTRIES.length);
+  const named = [...PINNED_COUNTRIES, ...dynamic];
+  const rest = ranked.filter((country) => !named.includes(country));
 
-  const series: MatrixSeries[] = top.map((country) => ({
+  // A pinned country with no traffic still gets a zero-filled series, so the legend and
+  // the colour assignment stay put.
+  const series: MatrixSeries[] = named.map((country) => ({
     metric: { country },
-    values: renderValues(byCountry.get(country)!, startSec, endSec),
+    values: renderValues(byCountry.get(country) ?? new Map(), startSec, endSec),
   }));
 
-  // Only emit Other when something actually overflowed — an all-zero series would burn a
-  // chart colour and a legend entry for nothing.
-  if (rest.length > 0) {
-    const merged = new Map<number, number>();
-    for (const country of rest) {
-      for (const [bucket, bytes] of byCountry.get(country)!) {
-        merged.set(bucket, (merged.get(bucket) ?? 0) + bytes);
-      }
+  // Other is always the sixth series, even when nothing overflowed, so the legend has a
+  // fixed shape rather than growing and shrinking with the traffic mix.
+  const merged = new Map<number, number>();
+  for (const country of rest) {
+    for (const [bucket, bytes] of byCountry.get(country)!) {
+      merged.set(bucket, (merged.get(bucket) ?? 0) + bytes);
     }
-    series.push({
-      metric: { country: OTHER_LABEL },
-      values: renderValues(merged, startSec, endSec),
-    });
   }
+  series.push({
+    metric: { country: OTHER_LABEL },
+    values: renderValues(merged, startSec, endSec),
+  });
 
   return { status: "success", data: { resultType: "matrix", result: series } };
 }
